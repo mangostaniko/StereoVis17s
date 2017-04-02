@@ -55,20 +55,22 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
                        int windowSize, int maxDisparity)
 {
 
-    Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_8UC1, 0.); // 8 bit unsigned char, one channel (grayscale), filled with zeros
-	Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_8UC1, 0.);
+    Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 8 bit unsigned char, one channel (grayscale), filled with zeros
+	Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.);
 
     for (int disparity = 0; disparity <= maxDisparity; ++disparity) {
 
-        for (int y = windowSize/2 + disparity; y < imgLeft.rows - windowSize/2; ++y) {
-			for (int x = windowSize/2 + disparity; x < imgLeft.cols - windowSize/2; ++x) {
+        for (int y = 0 + disparity; y < imgLeft.rows - windowSize; ++y) {
+			for (int x = 0 + disparity; x < imgLeft.cols - windowSize; ++x) {
+
+
 
 				// take windows as image submatrices making sure they do not exceed the image frame
 				// for right image shift sample position x to left by disparity (no y shift needed since rectified)
-				Mat windowLeft = imgLeft.rowRange(y-windowSize/2, y+windowSize/2)
-										.colRange(x-windowSize/2, x+windowSize/2);
-				Mat windowRight = imgRight.rowRange(y-windowSize/2, y+windowSize/2)
-										  .colRange(x-windowSize/2-disparity, x+windowSize/2-disparity);
+				Mat windowLeft = imgLeft.rowRange(y, y+windowSize)
+										.colRange(x, x+windowSize);
+				Mat windowRight = imgRight.rowRange(y, y+windowSize)
+										  .colRange(x-disparity, x+windowSize-disparity);
 
 				// take elementwise absolute color differences between all pixels in left and right window
 				Mat windowAbsDiff;
@@ -77,7 +79,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 				// the sum of the absolute color differences in the window is the cost at this pixel
 				// note Mat::at takes y (row) as first argument, then x (col)
 				Scalar sumChannel = sum(windowAbsDiff); // Scalar is used to pass pixel values, it is a vector of color channels, but not a vector of pixels
-				costMatRight.at<uchar>(y, x) = sumChannel[0] + sumChannel[1] + sumChannel[2];
+				costMatRight.at<int>(y, x) = sumChannel[0] + sumChannel[1] + sumChannel[2];
 
 
 
@@ -85,10 +87,10 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 				
 				// take windows as image submatrices making sure they do not exceed the image frame
 				// for right image shift sample position x to left by disparity (no y shift needed since rectified)
-				windowRight = imgRight.rowRange(y - windowSize / 2, y + windowSize / 2)
-					.colRange(x - windowSize / 2, x + windowSize / 2);
-				windowLeft = imgLeft.rowRange(y - windowSize / 2, y + windowSize / 2)
-					.colRange(x - windowSize / 2 - disparity, x + windowSize / 2 - disparity);
+				windowRight = imgRight.rowRange(y, y + windowSize)
+					.colRange(x, x + windowSize);
+				windowLeft = imgLeft.rowRange(y, y + windowSize)
+					.colRange(x - disparity, x + windowSize - disparity);
 
 				// take elementwise absolute color differences between all pixels in left and right window
 				absdiff(windowLeft, windowRight, windowAbsDiff);
@@ -96,7 +98,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 				// the sum of the absolute color differences in the window is the cost at this pixel
 				// note Mat::at takes y (row) as first argument, then x (col)
 				sumChannel = sum(windowAbsDiff); // Scalar is used to pass pixel values, it is a vector of color channels, but not a vector of pixels
-				costMatLeft.at<uchar>(y, x) = sumChannel[0] + sumChannel[1] + sumChannel[2];
+				costMatLeft.at<int>(y, x) = sumChannel[0] + sumChannel[1] + sumChannel[2];
 
 			}
         }
@@ -114,22 +116,22 @@ void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat>
 	if (costVolumeLeft.size() == costVolumeRight.size()) {
 		if (costVolumeRight.size() > 0) {
 
-			dispRight = Mat(costVolumeRight[0].size(), CV_8UC1, 0.);
-			dispLeft = Mat(costVolumeLeft[0].size(), CV_8UC1, 0.);
+			dispRight = Mat(costVolumeRight[0].size(), CV_32S, 0.);
+			dispLeft = Mat(costVolumeLeft[0].size(), CV_32S, 0.);
 
 			for (int x = 0; x < costVolumeRight[0].cols; x++) {
 				for (int y = 0; y < costVolumeRight[0].rows; y++) {
 
-					uchar minimumCostRight = UCHAR_MAX;
-					uchar minimumCostLeft = UCHAR_MAX;
-					uchar disparityRight = costVolumeRight.size();
-					uchar disparityLeft = costVolumeLeft.size();
+					int minimumCostRight = INT32_MAX;
+					int minimumCostLeft = INT32_MAX;
+					int disparityRight = costVolumeRight.size();
+					int disparityLeft = costVolumeLeft.size();
 
 					for (int d = 0; d < costVolumeRight.size(); d++) {
 
 						//get cost value for current disparity for right and left cost volume
-						auto costRight = costVolumeRight[d].at<uchar>(y, x);
-						auto costLeft = costVolumeLeft[d].at<uchar>(y, x);
+						auto costRight = costVolumeRight[d].at<int>(y, x);
+						auto costLeft = costVolumeLeft[d].at<int>(y, x);
 
 						//check if current right cost value is smaller than the current minimum cost value of right image
 						if (costRight < minimumCostRight) {
@@ -148,8 +150,8 @@ void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat>
 
 					//update the disparity map for right and left image and multiply with disparity value + 1 
 					//note: +1 not necessary because size() already returns max disparity value + 1
-					dispRight.at<uchar>(y, x) = disparityRight *costVolumeRight.size();
-					dispLeft.at<uchar>(y, x) = disparityLeft *costVolumeLeft.size();
+					dispRight.at<int>(y, x) = disparityRight *costVolumeRight.size(); //i think that's wrong...
+					dispLeft.at<int>(y, x) = disparityLeft *costVolumeLeft.size(); //i think that's wrong...
 				}
 			}
 		}
