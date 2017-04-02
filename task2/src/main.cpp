@@ -56,7 +56,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
     for (int disparity = 0; disparity <= maxDisparity; ++disparity) {
 
-        Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 8 bit unsigned char, one channel (grayscale), filled with zeros
+        Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 32 bit signed char, one channel (grayscale), filled with zeros
         Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.);
 
         for (int y = 0 + disparity; y < imgLeft.rows - windowSize - disparity; ++y) {
@@ -106,8 +106,8 @@ void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat>
     if (costVolumeLeft.size() == costVolumeRight.size()) {
         if (costVolumeRight.size() > 0) {
 
-            dispRight = Mat(costVolumeRight[0].size(), CV_32S, 0.);
-            dispLeft = Mat(costVolumeLeft[0].size(), CV_32S, 0.);
+            dispRight = Mat(costVolumeRight[0].size(), CV_8UC1, 0.);
+            dispLeft = Mat(costVolumeLeft[0].size(), CV_8UC1, 0.);
 
             for (int x = 0; x < costVolumeRight[0].cols; x++) {
                 for (int y = 0; y < costVolumeRight[0].rows; y++) {
@@ -140,8 +140,8 @@ void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat>
 
                     //update the disparity map for right and left image and multiply with disparity value + 1
                     //note: +1 not necessary because size() already returns max disparity value + 1
-                    dispRight.at<int>(y, x) = disparityRight *costVolumeRight.size(); //i think that's wrong...
-                    dispLeft.at<int>(y, x) = disparityLeft *costVolumeLeft.size(); //i think that's wrong...
+                    dispRight.at<uchar>(y, x) = disparityRight *costVolumeRight.size();
+                    dispLeft.at<uchar>(y, x) = disparityLeft *costVolumeLeft.size();
                 }
             }
         }
