@@ -9,9 +9,11 @@ int main()
     Mat img1, img2;
     img1 = imread("images/tsukuba_left.png", CV_LOAD_IMAGE_COLOR);
     img2 = imread("images/tsukuba_right.png", CV_LOAD_IMAGE_COLOR);
+
     if (!img1.data || !img2.data) {
         std::cout <<  "INPUT ERROR: Could not open or find images" << std::endl;
-        return -1;
+		system("PAUSE");
+		return -1;
     }
 
     Mat imgAbsDiff;
