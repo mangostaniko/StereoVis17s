@@ -20,23 +20,22 @@ int main()
         return -1;
     }
 
-    std::vector<Mat> costVolumeLeft;
-    std::vector<Mat> costVolumeRight;
+    std::vector<Mat> costVolumeLeft, costVolumeRight;
     cv::Mat dispLeft, dispRight;
     int windowSize = 5; // must be uneven
     int maxDisparity = 15;
+
     computeCostVolume(imgLeft, imgRight, costVolumeLeft, costVolumeRight, windowSize, maxDisparity);
+
+    namedWindow("Cost Map Right for disparity 5", WINDOW_AUTOSIZE);
+    imshow("Cost Map Right for disparity 5", costVolumeRight[5]);
+    namedWindow("Cost Map Left for disparity 5", WINDOW_AUTOSIZE);
+    imshow("Cost Map Left for disparity 5", costVolumeLeft[5]);
+
     selectDisparity(dispLeft, dispRight, costVolumeLeft, costVolumeRight);
-
-    namedWindow("Cost Volume Right", WINDOW_AUTOSIZE);
-    imshow("Cost Volume Right", costVolumeRight[5]);
-
-    namedWindow("Cost Volume Left", WINDOW_AUTOSIZE);
-    imshow("Cost Volume Left", costVolumeLeft[5]);
 
     namedWindow("Disparity Map Right", WINDOW_AUTOSIZE);
     imshow("Disparity Map Right", dispRight);
-
     namedWindow("Disparity Map Left", WINDOW_AUTOSIZE);
     imshow("Disparity Map Left", dispLeft);
 
@@ -55,13 +54,13 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
                        int windowSize, int maxDisparity)
 {
 
-    Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 8 bit unsigned char, one channel (grayscale), filled with zeros
-    Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.);
-
     for (int disparity = 0; disparity <= maxDisparity; ++disparity) {
 
-        for (int y = 0 + disparity; y < imgLeft.rows - windowSize; ++y) {
-            for (int x = 0 + disparity; x < imgLeft.cols - windowSize; ++x) {
+        Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 8 bit unsigned char, one channel (grayscale), filled with zeros
+        Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.);
+
+        for (int y = 0 + disparity; y < imgLeft.rows - windowSize - disparity; ++y) {
+            for (int x = 0 + disparity; x < imgLeft.cols - windowSize - disparity; ++x) {
 
                 // COSTVOLUMERIGHT
 
@@ -101,7 +100,8 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 }
 
 
-void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight) {
+void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight)
+{
 
     if (costVolumeLeft.size() == costVolumeRight.size()) {
         if (costVolumeRight.size() > 0) {
