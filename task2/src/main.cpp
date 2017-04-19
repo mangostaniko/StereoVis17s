@@ -112,8 +112,8 @@ void selectDisparity(cv::Mat &dispMatLeft, cv::Mat &dispMatRight,
         return;
     }
 
-    dispMatRight = Mat(costVolumeRight[0].size(), CV_32SC1, 0.);
-    dispMatLeft = Mat(costVolumeLeft[0].size(), CV_32SC1, 0.);
+    dispMatRight = Mat(costVolumeRight[0].size(), CV_8UC1, 0.);
+    dispMatLeft = Mat(costVolumeLeft[0].size(), CV_8UC1, 0.);
 
     for (int y = 0; y < costVolumeRight[0].rows; ++y) {
         for (int x = 0; x < costVolumeRight[0].cols; ++x) {
@@ -142,8 +142,8 @@ void selectDisparity(cv::Mat &dispMatLeft, cv::Mat &dispMatRight,
 
             // normalize disparities for visualization (e.g. if costs calculated for 16 different disperities, map 16 to 256)
             int numDisparities = costVolumeRight.size();
-            dispMatRight.at<int>(y, x) = disparityRight / (float)numDisparities * 256.f;
-            dispMatLeft.at<int>(y, x) = disparityLeft / (float)numDisparities * 256.f;
+            dispMatRight.at<uchar>(y, x) = disparityRight / (float)numDisparities * 256.f;
+            dispMatLeft.at<uchar>(y, x) = disparityLeft / (float)numDisparities * 256.f;
         }
     }
 }
