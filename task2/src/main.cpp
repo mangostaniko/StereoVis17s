@@ -8,6 +8,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
                        int windowSize, int maxDisparity);
 void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight);
 
+
 int main()
 {
 
@@ -15,7 +16,7 @@ int main()
     imgLeft  = imread("images/tsukuba_left.png", CV_LOAD_IMAGE_COLOR);
     imgRight = imread("images/tsukuba_right.png", CV_LOAD_IMAGE_COLOR);
     if (!imgLeft.data || !imgRight.data) {
-        std::cout <<  "INPUT ERROR: Could not open or find images" << std::endl;
+        std::cout << "INPUT ERROR: Could not open or find images" << std::endl;
         system("PAUSE");
         return -1;
     }
@@ -56,7 +57,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
     for (int disparity = 0; disparity <= maxDisparity; ++disparity) {
 
-        Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 8 bit unsigned char, one channel (grayscale), filled with zeros
+        Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 32 bit signed integer, one channel (grayscale), filled with zeros
         Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.);
 
         for (int y = 0 + disparity; y < imgLeft.rows - windowSize - disparity; ++y) {
@@ -66,7 +67,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
                 // take windows as image submatrices making sure they do not exceed the image frame
                 // for right image shift sample position x to left by disparity (no y shift needed since rectified)
-                Mat windowLeft =   imgLeft.rowRange(y, y + windowSize).colRange(x, x + windowSize);
+                Mat windowLeft = imgLeft.rowRange(y, y + windowSize).colRange(x, x + windowSize);
                 Mat windowRight = imgRight.rowRange(y, y + windowSize).colRange(x - disparity, x + windowSize - disparity);
 
                 // the sum of the absolute color differences in the window is the cost at this pixel
@@ -80,7 +81,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
                 // take windows as image submatrices making sure they do not exceed the image frame
                 // for left image shift sample position x to right by disparity (no y shift needed since rectified)
-                windowLeft =   imgLeft.rowRange(y, y + windowSize).colRange(x + disparity, x + windowSize + disparity);
+                windowLeft = imgLeft.rowRange(y, y + windowSize).colRange(x + disparity, x + windowSize + disparity);
                 windowRight = imgRight.rowRange(y, y + windowSize).colRange(x, x + windowSize);
 
                 // the sum of the absolute color differences in the window is the cost at this pixel
@@ -99,52 +100,50 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
 }
 
-
-void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight)
+// compute left and right disparity maps from cost volumes (containing costs for each pixel and each given disparity shift)
+// for each pixel the disparity with lowest cost is used
+// disparities are then normalized for visualization (e.g. if costs calculated for 16 different disperities, map 16 to 256)
+void selectDisparity(cv::Mat &dispMatLeft, cv::Mat &dispMatRight,
+                     std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight)
 {
 
-    if (costVolumeLeft.size() == costVolumeRight.size()) {
-        if (costVolumeRight.size() > 0) {
-
-            dispRight = Mat(costVolumeRight[0].size(), CV_32S, 0.);
-            dispLeft = Mat(costVolumeLeft[0].size(), CV_32S, 0.);
-
-            for (int x = 0; x < costVolumeRight[0].cols; x++) {
-                for (int y = 0; y < costVolumeRight[0].rows; y++) {
-
-                    int minimumCostRight = INT32_MAX;
-                    int minimumCostLeft = INT32_MAX;
-                    int disparityRight = costVolumeRight.size();
-                    int disparityLeft = costVolumeLeft.size();
-
-                    for (int d = 0; d < costVolumeRight.size(); d++) {
-
-                        //get cost value for current disparity for right and left cost volume
-                        auto costRight = costVolumeRight[d].at<int>(y, x);
-                        auto costLeft = costVolumeLeft[d].at<int>(y, x);
-
-                        //check if current right cost value is smaller than the current minimum cost value of right image
-                        if (costRight < minimumCostRight) {
-                            //if current cost value is smaller, update minimal cost and store the current disparity value for the right disparity map
-                            minimumCostRight = costRight;
-                            disparityRight = d;
-                        }
-
-                        //check if current left cost value is smaller than the current minimum cost value of left image
-                        if (costLeft < minimumCostLeft) {
-                            //if current cost value is smaller, update minimal cost and store the current disparity value for the right disparity map
-                            minimumCostLeft = costLeft;
-                            disparityLeft = d;
-                        }
-                    }
-
-                    //update the disparity map for right and left image and multiply with disparity value + 1
-                    //note: +1 not necessary because size() already returns max disparity value + 1
-                    dispRight.at<int>(y, x) = disparityRight *costVolumeRight.size(); //i think that's wrong...
-                    dispLeft.at<int>(y, x) = disparityLeft *costVolumeLeft.size(); //i think that's wrong...
-                }
-            }
-        }
+    if (costVolumeLeft.size() != costVolumeRight.size() || costVolumeRight.size() == 0) {
+        std::cout << "ERROR: Matching Cost Volumes have unequal or zero size" << std::endl;
+        return;
     }
 
+    dispMatRight = Mat(costVolumeRight[0].size(), CV_32SC1, 0.);
+    dispMatLeft = Mat(costVolumeLeft[0].size(), CV_32SC1, 0.);
+
+    for (int y = 0; y < costVolumeRight[0].rows; ++y) {
+        for (int x = 0; x < costVolumeRight[0].cols; ++x) {
+
+            int minCostRight = INT32_MAX;
+            int minCostLeft = INT32_MAX;
+            int disparityRight = costVolumeRight.size();
+            int disparityLeft = costVolumeLeft.size();
+
+            for (int disparity = 0; disparity < costVolumeRight.size(); ++disparity) {
+
+                // if we find a disparity with lower cost in right cost volume, update candidate for right disparity map
+                int costRight = costVolumeRight[disparity].at<int>(y, x);
+                if (costRight < minCostRight) {
+                    minCostRight = costRight;
+                    disparityRight = disparity;
+                }
+
+                // if we find a disparity with lower cost in left cost volume, update candidate for left disparity map
+                int costLeft = costVolumeLeft[disparity].at<int>(y, x);
+                if (costLeft < minCostLeft) {
+                    minCostLeft = costLeft;
+                    disparityLeft = disparity;
+                }
+            }
+
+            // normalize disparities for visualization (e.g. if costs calculated for 16 different disperities, map 16 to 256)
+            int numDisparities = costVolumeRight.size();
+            dispMatRight.at<int>(y, x) = disparityRight / (float)numDisparities * 256.f;
+            dispMatLeft.at<int>(y, x) = disparityLeft / (float)numDisparities * 256.f;
+        }
+    }
 }
