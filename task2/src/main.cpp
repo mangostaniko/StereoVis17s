@@ -102,7 +102,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
 // compute left and right disparity maps from cost volumes (containing costs for each pixel and each given disparity shift)
 // for each pixel the disparity with lowest cost is used
-// disparities are then normalized for visualization (e.g. if costs calculated for 16 different disperities, map 16 to 256)
+// disparities are then normalized for visualization (e.g. if costs calculated for 16 different disperities, map 15 to 255)
 void selectDisparity(cv::Mat &dispMatLeft, cv::Mat &dispMatRight,
                      std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight)
 {
@@ -140,7 +140,7 @@ void selectDisparity(cv::Mat &dispMatLeft, cv::Mat &dispMatRight,
                 }
             }
 
-            // normalize disparities for visualization (e.g. if costs calculated for 16 different disperities, map 16 to 256)
+            // normalize disparities for visualization (e.g. if costs calculated for 16 different disperities, map 15 to 255)
             int numDisparities = costVolumeRight.size()-1;
             dispMatRight.at<uchar>(y, x) = disparityRight / (float)(numDisparities) * 255.f;
             dispMatLeft.at<uchar>(y, x) = disparityLeft / (float)(numDisparities) * 255.f;
