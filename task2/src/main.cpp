@@ -22,7 +22,7 @@ int main()
     }
 
     std::vector<Mat> costVolumeLeft, costVolumeRight;
-    cv::Mat dispLeft, dispRight;
+    cv::Mat dispMatLeft, dispMatRight;
     int windowSize = 5; // must be uneven
     int maxDisparity = 15;
 
@@ -33,12 +33,12 @@ int main()
     namedWindow("Cost Map Left for disparity 5", WINDOW_AUTOSIZE);
     imshow("Cost Map Left for disparity 5", costVolumeLeft[5]);
 
-    selectDisparity(dispLeft, dispRight, costVolumeLeft, costVolumeRight);
+    selectDisparity(dispMatLeft, dispMatRight, costVolumeLeft, costVolumeRight);
 
     namedWindow("Disparity Map Right", WINDOW_AUTOSIZE);
-    imshow("Disparity Map Right", dispRight);
+    imshow("Disparity Map Right", dispMatRight);
     namedWindow("Disparity Map Left", WINDOW_AUTOSIZE);
-    imshow("Disparity Map Left", dispLeft);
+    imshow("Disparity Map Left", dispMatLeft);
 
     waitKey(0); // wait for a keystroke in the window
     
@@ -60,35 +60,43 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
         Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 32 bit signed integer, one channel (grayscale), filled with zeros
         Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.);
 
-        for (int y = 0 + disparity; y < imgLeft.rows - windowSize - disparity; ++y) {
-            for (int x = 0 + disparity; x < imgLeft.cols - windowSize - disparity; ++x) {
+        // add borders / zero padding around images
+        // to ensure that windows placed around original pixels and shifted by disparity never leave the image
+        // without having to adaptively adjust the window size
+        Mat imgLeftBorder, imgRightBorder;
+        int borderSize = windowSize/2 + disparity;
+        copyMakeBorder(imgLeft, imgLeftBorder, borderSize, borderSize, borderSize, borderSize, BORDER_CONSTANT, 0);
+        copyMakeBorder(imgRight, imgRightBorder, borderSize, borderSize, borderSize, borderSize, BORDER_CONSTANT, 0);
+
+        for (int y = borderSize; y < imgLeftBorder.rows - borderSize; ++y) {
+            for (int x = borderSize; x < imgLeftBorder.cols - borderSize; ++x) {
 
                 // COSTVOLUMERIGHT
 
                 // take windows as image submatrices making sure they do not exceed the image frame
                 // for right image shift sample position x to left by disparity (no y shift needed since rectified)
-                Mat windowLeft = imgLeft.rowRange(y, y + windowSize).colRange(x, x + windowSize);
-                Mat windowRight = imgRight.rowRange(y, y + windowSize).colRange(x - disparity, x + windowSize - disparity);
+                Mat windowLeft = imgLeftBorder.rowRange(y-windowSize/2, y+windowSize/2).colRange(x-windowSize/2, x+windowSize/2);
+                Mat windowRight = imgRightBorder.rowRange(y-windowSize/2, y+windowSize/2).colRange(x-windowSize/2-disparity, x+windowSize/2-disparity);
 
                 // the sum of the absolute color differences in the window is the cost at this pixel
                 // note Mat::at takes y (row) as first argument, then x (col)
                 Mat windowAbsDiff;
                 absdiff(windowLeft, windowRight, windowAbsDiff);
                 Scalar sumChannel = sum(windowAbsDiff); // Scalar is used to pass pixel values, it is a vector of color channels, but not a vector of pixels
-                costMatRight.at<int>(y, x) = sumChannel[0] + sumChannel[1] + sumChannel[2];
+                costMatRight.at<int>(y-borderSize, x-borderSize) = sumChannel[0] + sumChannel[1] + sumChannel[2];
 
                 // COSTVOLUMELEFT
 
                 // take windows as image submatrices making sure they do not exceed the image frame
                 // for left image shift sample position x to right by disparity (no y shift needed since rectified)
-                windowLeft = imgLeft.rowRange(y, y + windowSize).colRange(x + disparity, x + windowSize + disparity);
-                windowRight = imgRight.rowRange(y, y + windowSize).colRange(x, x + windowSize);
+                windowLeft = imgLeftBorder.rowRange(y-windowSize/2, y+windowSize/2).colRange(x-windowSize/2+disparity, x+windowSize/2+disparity);
+                windowRight = imgRightBorder.rowRange(y-windowSize/2, y+windowSize/2).colRange(x-windowSize/2, x+windowSize/2);
 
                 // the sum of the absolute color differences in the window is the cost at this pixel
                 // note Mat::at takes y (row) as first argument, then x (col)
                 absdiff(windowLeft, windowRight, windowAbsDiff);
                 sumChannel = sum(windowAbsDiff); // Scalar is used to pass pixel values, it is a vector of color channels, but not a vector of pixels
-                costMatLeft.at<int>(y, x) = sumChannel[0] + sumChannel[1] + sumChannel[2];
+                costMatLeft.at<int>(y-borderSize, x-borderSize) = sumChannel[0] + sumChannel[1] + sumChannel[2];
 
             }
         }
