@@ -6,7 +6,8 @@ using namespace cv;
 void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
                        std::vector<Mat> &costVolumeLeft, std::vector<Mat> &costVolumeRight,
                        int windowSize, int maxDisparity);
-void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight, std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight);
+void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight,
+                     std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight);
 
 
 int main()
@@ -23,22 +24,30 @@ int main()
 
     std::vector<Mat> costVolumeLeft, costVolumeRight;
     cv::Mat dispMatLeft, dispMatRight;
-    int windowSize = 5; // must be uneven
-    int maxDisparity = 15;
+
+    // the following parameters, especially the windowSize have to be tweaked for each pair of input images
+    int windowSize = 7; // must be uneven. increase if result too noisy, decrease if result too blurry
+    int maxDisparity = 15; // higher means slower, estimate based on how many pixels frontmost objects are apart. use small images!!
 
     computeCostVolume(imgLeft, imgRight, costVolumeLeft, costVolumeRight, windowSize, maxDisparity);
 
-    namedWindow("Cost Map Right for disparity 5", WINDOW_AUTOSIZE);
-    imshow("Cost Map Right for disparity 5", costVolumeRight[5]);
-    namedWindow("Cost Map Left for disparity 5", WINDOW_AUTOSIZE);
-    imshow("Cost Map Left for disparity 5", costVolumeLeft[5]);
-
     selectDisparity(dispMatLeft, dispMatRight, costVolumeLeft, costVolumeRight);
 
+    // display results
     namedWindow("Disparity Map Right", WINDOW_AUTOSIZE);
     imshow("Disparity Map Right", dispMatRight);
     namedWindow("Disparity Map Left", WINDOW_AUTOSIZE);
     imshow("Disparity Map Left", dispMatLeft);
+
+    /*/ display ground truth
+    Mat imgGTLeft, imgGTRight;
+    imgGTLeft  = imread("images/tsukuba_displeft.png", CV_LOAD_IMAGE_COLOR);
+    imgGTRight = imread("images/tsukuba_dispright.png", CV_LOAD_IMAGE_COLOR);
+    namedWindow("Disparity Map GT Right", WINDOW_AUTOSIZE);
+    imshow("Disparity Map GT Right", imgGTRight);
+    namedWindow("Disparity Map GT Left", WINDOW_AUTOSIZE);
+    imshow("Disparity Map GT Left", imgGTLeft);
+    //*/
 
     waitKey(0); // wait for a keystroke in the window
     
