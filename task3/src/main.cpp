@@ -37,7 +37,7 @@ int main()
 
     computeCostVolume(imgLeft, imgRight, costVolumeLeft, costVolumeRight, windowSize, maxDisparity);
 
-    //selectDisparity(dispMatLeft, dispMatRight, costVolumeLeft, costVolumeRight);
+    selectDisparity(dispMatLeft, dispMatRight, costVolumeLeft, costVolumeRight);
 
 
 	namedWindow("Cost Volume Left", WINDOW_AUTOSIZE);
@@ -46,10 +46,10 @@ int main()
 	imshow("Cost Volume Right", costVolumeRight[7]);
 
     // display results
-    /*namedWindow("Disparity Map Right", WINDOW_AUTOSIZE);
+    namedWindow("Disparity Map Right", WINDOW_AUTOSIZE);
     imshow("Disparity Map Right", dispMatRight);
     namedWindow("Disparity Map Left", WINDOW_AUTOSIZE);
-    imshow("Disparity Map Left", dispMatLeft);*/
+    imshow("Disparity Map Left", dispMatLeft);
 
     /*/ display ground truth
     Mat imgGTLeft, imgGTRight;
