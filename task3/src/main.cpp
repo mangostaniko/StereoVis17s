@@ -9,7 +9,6 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight,
                      std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight);
 
-void calculateWeight(cv::Mat &windowLeft);
 float calculateWeightColorDifferance(int halfWindowSize, Mat window, float sumSpatialDiff);
 
 
@@ -158,6 +157,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 }
 
 
+//calculates the weight for the color difference between the pixels in a window
 float calculateWeightColorDifferance(int halfWindowSize, Mat window, float sumSpatialDiff) {
 	Vec3b middleColor = window.at<Vec3b>(halfWindowSize, halfWindowSize);
 	vector<Mat> channels(3);
@@ -174,14 +174,6 @@ float calculateWeightColorDifferance(int halfWindowSize, Mat window, float sumSp
 	Scalar sumCol = sum(ch1Diff) + sum(ch2Diff) + sum(ch3Diff);
 	float colDiff = sqrt(sumCol[0] + sumCol[1] + sumCol[2]) / gammaC;
 	return exp(-(colDiff + sumSpatialDiff));
-}
-
-//calculates the weight for one window
-void calculateWeight(cv::Mat &window) {
-
-
-
-
 }
 
 
