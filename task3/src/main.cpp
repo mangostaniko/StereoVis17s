@@ -110,7 +110,6 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
                        std::vector<Mat> &costVolumeLeft, std::vector<Mat> &costVolumeRight,
                        int windowSize, int maxDisparity)
 {
-
 	int halfWindowSize = windowSize/2; // integer division truncates, e.g. 5/2 = 2
 
     for (int disparity = 0; disparity <= maxDisparity; ++disparity) {
@@ -140,6 +139,7 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 				Mat weightsRight = Mat(windowSize, windowSize, CV_32FC1, 0.);
 				calculateWindowWeights(windowLeft, weightsLeft);
 				calculateWindowWeights(windowRight, weightsRight);
+				auto text = sum(weightsLeft.mul(weightsRight));
 				double sumWindowWeights = sum(weightsLeft.mul(weightsRight))[0]; // sum() always returns Scalar, i.e. vector of channels
 
 				// the weighted sum of the absolute color differences in the window is the cost at this pixel
@@ -229,8 +229,8 @@ void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<M
 	for (int y = 0; y < costVolumeLeft[0].rows; ++y) {
 		for (int x = 0; x < costVolumeLeft[0].cols; ++x) {
 
-			int minCostRight = FLT_MAX;
-			int minCostLeft = FLT_MAX;
+			float minCostRight = FLT_MAX;
+			float minCostLeft = FLT_MAX;
             int disparityRight = costVolumeRight.size();
             int disparityLeft = costVolumeLeft.size();
 
