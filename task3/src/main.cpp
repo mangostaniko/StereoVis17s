@@ -6,9 +6,10 @@ using namespace cv;
 void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
                        std::vector<Mat> &costVolumeLeft, std::vector<Mat> &costVolumeRight,
                        int windowSize, int maxDisparity);
-void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<Mat> &costVolumeRight, Mat &dispLeft, Mat &dispRight);
-
 void calculateWindowWeights(const Mat &window, Mat &resultWeightMat);
+
+void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<Mat> &costVolumeRight, Mat &dispLeft, Mat &dispRight);
+void refineDisparity(Mat &dispMatLeft, Mat &dispMatRight, int numDisparities);
 
 
 #define GAMMA_C 7.f;
@@ -30,12 +31,11 @@ int main()
 	Mat dispMatLeft, dispMatRight;
 
     // the following parameters, especially the windowSize have to be tweaked for each pair of input images
-    int windowSize = 5; // must be uneven. increase if result too noisy, decrease if result too blurry
-    int maxDisparity = 11; // higher means slower, estimate based on how many pixels frontmost objects are apart. use small images!!
+	int windowSize = 7; // must be uneven. increase if result too noisy, decrease if result too blurry
+	int maxDisparity = 15; // higher means slower, estimate based on how many pixels frontmost objects are apart. use small images!!
 
+	std::cout << "COMPUTING COST VOLUMES (WINDOW MATCHING COST FOR EACH DISPARITY)..." << std::endl;
     computeCostVolume(imgLeft, imgRight, costVolumeLeft, costVolumeRight, windowSize, maxDisparity);
-
-	selectDisparity(costVolumeLeft, costVolumeRight, dispMatLeft, dispMatRight);
 
 	/*/ display one slice of cost volume
 	namedWindow("Cost Volume Left", WINDOW_AUTOSIZE);
@@ -44,11 +44,44 @@ int main()
 	imshow("Cost Volume Right", costVolumeRight[7]);
 	//*/
 
+	std::cout << "SELECTING BEST MATCHING DISPARITY..." << std::endl;
+	selectDisparity(costVolumeLeft, costVolumeRight, dispMatLeft, dispMatRight);
+
+	// convert back from float to 8 bit image
+	Mat dispMatLeftConverted, dispMatRightConverted;
+	dispMatLeft.convertTo(dispMatLeftConverted, CV_8UC1, 255.0f);
+	dispMatRight.convertTo(dispMatRightConverted, CV_8UC1, 255.0f);
+
+	// write results to file
+	imwrite("images/result_disparity_left.png", dispMatLeftConverted);
+	imwrite("images/result_disparity_right.png", dispMatRightConverted);
+	std::cout << "Results saved to file: <build>/images/result_disparity_[left|right].png." << std::endl;
+
     // display results
+	std::cout << "Displaying results." << std::endl;
+	namedWindow("Disparity Map Left", WINDOW_AUTOSIZE);
+	imshow("Disparity Map Left", dispMatLeftConverted);
     namedWindow("Disparity Map Right", WINDOW_AUTOSIZE);
-    imshow("Disparity Map Right", dispMatRight);
-    namedWindow("Disparity Map Left", WINDOW_AUTOSIZE);
-    imshow("Disparity Map Left", dispMatLeft);
+	imshow("Disparity Map Right", dispMatRightConverted);
+
+	std::cout << "REFINING DISPARITY MAP..." << std::endl;
+	refineDisparity(dispMatLeft, dispMatRight, maxDisparity);
+
+	// convert back from float to 8 bit image
+	dispMatLeft.convertTo(dispMatLeftConverted, CV_8UC1, 255.0f);
+	dispMatRight.convertTo(dispMatRightConverted, CV_8UC1, 255.0f);
+
+	// write results to file
+	imwrite("images/result_disparity_left_refined.png", dispMatLeftConverted);
+	imwrite("images/result_disparity_right_refined.png", dispMatRightConverted);
+	std::cout << "Results saved to file: <build>/images/result_disparity_[left|right]_refined.png." << std::endl;
+
+	// display results
+	std::cout << "Displaying refined results." << std::endl;
+	namedWindow("Disparity Map Refined Left", WINDOW_AUTOSIZE);
+	imshow("Disparity Map Refined Left", dispMatLeftConverted);
+	namedWindow("Disparity Map Refined Right", WINDOW_AUTOSIZE);
+	imshow("Disparity Map Refined Right", dispMatRightConverted);
 
     /*/ display ground truth
     Mat imgGTLeft, imgGTRight;
@@ -193,15 +226,15 @@ void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<M
 	dispMatRight = Mat(costVolumeRight[0].size(), CV_32FC1, 0.);
 	dispMatLeft = Mat(costVolumeLeft[0].size(), CV_32FC1, 0.);
 
-    for (int y = 0; y < costVolumeRight[0].rows; ++y) {
-        for (int x = 0; x < costVolumeRight[0].cols; ++x) {
+	for (int y = 0; y < costVolumeLeft[0].rows; ++y) {
+		for (int x = 0; x < costVolumeLeft[0].cols; ++x) {
 
 			int minCostRight = FLT_MAX;
 			int minCostLeft = FLT_MAX;
             int disparityRight = costVolumeRight.size();
             int disparityLeft = costVolumeLeft.size();
 
-            for (int disparity = 0; disparity < costVolumeRight.size(); ++disparity) {
+			for (int disparity = 0; disparity < costVolumeLeft.size(); ++disparity) {
 
                 // if we find a disparity with lower cost in right cost volume, update candidate for right disparity map
 				int costRight = costVolumeRight[disparity].at<float>(y, x);
@@ -219,9 +252,36 @@ void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<M
             }
 
 			// normalize disparities for visualization (e.g. if costs calculated for 16 different disperities, map 15 to 1)
-            int numDisparities = costVolumeRight.size()-1;
+			int numDisparities = costVolumeLeft.size()-1;
 			dispMatRight.at<float>(y, x) = disparityRight / (float)(numDisparities);
 			dispMatLeft.at<float>(y, x) = disparityLeft / (float)(numDisparities);
         }
     }
+}
+
+// refine disparity map by filling in inconsistent pixels in occluded or mismatched regions
+// check for inconsistent pixels by comparing each pixel from one image with its corresponding pixel in the other image.
+// those pixels are invalid whose corresponding disparity differs by more than one.
+void refineDisparity(Mat &dispMatLeft, Mat &dispMatRight, int numDisparities)
+{
+	float lastValidDisparity = 0.f;
+
+	for (int y = 0; y < dispMatLeft.rows; ++y) {
+		for (int x = 0; x < dispMatLeft.cols; ++x) {
+
+			// check for inconsistent pixels by comparing each pixel from one image with its corresponding pixel in the other image.
+			// those pixels are invalid whose corresponding disparity differs by more than one.
+			// in our float image one disparity step is mapped to a step of 1/numDisparities (numDisparities is mapped to 1)
+			if (abs(dispMatLeft.at<float>(y, x) - dispMatRight.at<float>(y, x)) > 1/(float)(numDisparities)) {
+
+				// fill those invalid pixels with the minimum of their closest valid left or right neighbor’s disparity.
+				dispMatLeft.at<float>(y, x) = lastValidDisparity;
+				dispMatRight.at<float>(y, x) = lastValidDisparity;
+
+			} else { // valid
+				lastValidDisparity = dispMatLeft.at<float>(y, x);
+			}
+
+		}
+	}
 }
