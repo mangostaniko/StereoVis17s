@@ -6,15 +6,13 @@ using namespace cv;
 void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
                        std::vector<Mat> &costVolumeLeft, std::vector<Mat> &costVolumeRight,
                        int windowSize, int maxDisparity);
-void selectDisparity(cv::Mat &dispLeft, cv::Mat &dispRight,
-                     std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight);
+void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<Mat> &costVolumeRight, Mat &dispLeft, Mat &dispRight);
 
-float calculateWeightColorDifferance(int halfWindowSize, Mat window, float sumSpatialDiff);
+void calculateWindowWeights(const Mat &window, Mat &resultWeightMat);
 
 
-float gamma = 14.0;
-float gammaC = gamma*(1.0 / 2.0);
-float gammaP = 36.0;
+#define GAMMA_C 7.f;
+#define GAMMA_P 36.f;
 
 int main()
 {
@@ -29,7 +27,7 @@ int main()
     }
 
     std::vector<Mat> costVolumeLeft, costVolumeRight;
-    cv::Mat dispMatLeft, dispMatRight;
+	Mat dispMatLeft, dispMatRight;
 
     // the following parameters, especially the windowSize have to be tweaked for each pair of input images
     int windowSize = 5; // must be uneven. increase if result too noisy, decrease if result too blurry
@@ -37,13 +35,14 @@ int main()
 
     computeCostVolume(imgLeft, imgRight, costVolumeLeft, costVolumeRight, windowSize, maxDisparity);
 
-    selectDisparity(dispMatLeft, dispMatRight, costVolumeLeft, costVolumeRight);
+	selectDisparity(costVolumeLeft, costVolumeRight, dispMatLeft, dispMatRight);
 
-
+	/*/ display one slice of cost volume
 	namedWindow("Cost Volume Left", WINDOW_AUTOSIZE);
 	imshow("Cost Volume Left", costVolumeLeft[7]);
 	namedWindow("Cost Volume Right", WINDOW_AUTOSIZE);
 	imshow("Cost Volume Right", costVolumeRight[7]);
+	//*/
 
     // display results
     namedWindow("Disparity Map Right", WINDOW_AUTOSIZE);
@@ -69,39 +68,28 @@ int main()
 
 
 // given two rectified stereo images left and right we want to find the disparity,
-// i.e. the horizontal left shift for the right image so that it best matches the left image
-// based on the absolute pixel color difference (cost) in a given window
+// i.e. the horizontal left shift for the right image so that it best matches the left image (and vice versa).
+// for each pixel, correspondence windows around pixel position in one image and displaced postion in other are compared pixelwise.
+// matching cost of each pixel is based on sum of weighted absolute pixel color differences in the correspondence windows.
+// the pixel absolute differences in each window are weighted based on spatial and intensity differences to window center,
+// based on assumption that pixels of same object have similar color and are close to each other.
 void computeCostVolume(const Mat &imgLeft, const Mat &imgRight, 
                        std::vector<Mat> &costVolumeLeft, std::vector<Mat> &costVolumeRight,
                        int windowSize, int maxDisparity)
 {
 
-	//calculate spatial diff outside the for loop because it is every time the same window size, so the differences between the spatial values is every time the same range
-	int halfWindowSize = floor(windowSize/2);
-	float sumSpatialDiff = 0;
-
-	Vec2i p = Vec2i(halfWindowSize, halfWindowSize);
-	for (int u = 1; u <= windowSize; u++) {
-		for (int v = 1; v <= windowSize; v++) {
-			Vec2i q = Vec2i(u, v);
-			Vec2i diff;
-			absdiff(p, q, diff);
-			diff = diff.mul(diff);
-			float spatialDiff = sqrt(diff[0]+diff[1])/gammaP;
-			sumSpatialDiff += spatialDiff;
-		}
-	}
+	int halfWindowSize = windowSize/2; // integer division truncates, e.g. 5/2 = 2
 
     for (int disparity = 0; disparity <= maxDisparity; ++disparity) {
 
-        Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.); // 32 bit signed integer, one channel (grayscale), filled with zeros
-        Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32SC1, 0.);
+		Mat costMatRight = Mat(imgLeft.rows, imgRight.cols, CV_32FC1, 0.); // 32 bit float, one channel (grayscale), filled with zeros
+		Mat costMatLeft = Mat(imgLeft.rows, imgRight.cols, CV_32FC1, 0.);
 
         // add borders / zero padding around images
         // to ensure that windows placed around original pixels and shifted by disparity never leave the image
         // without having to adaptively adjust the window size
         Mat imgLeftBorder, imgRightBorder;
-        int borderSize = windowSize/2 + disparity;
+		int borderSize = windowSize/2 + disparity;
         copyMakeBorder(imgLeft, imgLeftBorder, borderSize, borderSize, borderSize, borderSize, BORDER_CONSTANT, 0);
         copyMakeBorder(imgRight, imgRightBorder, borderSize, borderSize, borderSize, borderSize, BORDER_CONSTANT, 0);
 
@@ -112,39 +100,40 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
                 // take windows as image submatrices making sure they do not exceed the image frame
                 // for right image shift sample position x to left by disparity (no y shift needed since rectified)
-                Mat windowLeft = imgLeftBorder.rowRange(y-halfWindowSize, y+windowSize-halfWindowSize).colRange(x- halfWindowSize, x+windowSize-halfWindowSize);
-                Mat windowRight = imgRightBorder.rowRange(y-halfWindowSize, y+windowSize-halfWindowSize).colRange(x-halfWindowSize-disparity, x+windowSize-halfWindowSize-disparity);
+				Mat windowLeft = imgLeftBorder.rowRange(y-halfWindowSize, y+halfWindowSize+1).colRange(x-halfWindowSize, x+halfWindowSize+1);
+				Mat windowRight = imgRightBorder.rowRange(y-halfWindowSize, y+halfWindowSize+1).colRange(x-halfWindowSize-disparity, x+halfWindowSize+1-disparity);
 
+				Mat weightsLeft = Mat(windowSize, windowSize, CV_32FC1, 0.);
+				Mat weightsRight = Mat(windowSize, windowSize, CV_32FC1, 0.);
+				calculateWindowWeights(windowLeft, weightsLeft);
+				calculateWindowWeights(windowRight, weightsRight);
+				double sumWindowWeights = sum(weightsLeft.mul(weightsRight))[0]; // sum() always returns Scalar, i.e. vector of channels
 
-				float weightLeft = calculateWeightColorDifferance(halfWindowSize, windowLeft, sumSpatialDiff);
-				float weightRight = calculateWeightColorDifferance(halfWindowSize, windowRight, sumSpatialDiff);
-
-				double bothWeights = weightLeft*weightRight;
-
-                // the sum of the absolute color differences in the window is the cost at this pixel
+				// the weighted sum of the absolute color differences in the window is the cost at this pixel
                 // note Mat::at takes y (row) as first argument, then x (col)
-                Mat windowAbsDiff;
-                absdiff(windowLeft, windowRight, windowAbsDiff);
-                Scalar sumChannel = sum(windowAbsDiff); // Scalar is used to pass pixel values, it is a vector of color channels, but not a vector of pixels
-				costMatRight.at<int>(y - borderSize, x - borderSize) = ((sumChannel[0] + sumChannel[1] + sumChannel[2]) *bothWeights) / bothWeights;
+				Mat windowAbsDiffs;
+				absdiff(windowLeft, windowRight, windowAbsDiffs);
+				transform(windowAbsDiffs, windowAbsDiffs, Matx13f(1,1,1)); // hack to elementwise add all three color channels into single channel (CV_8UC3 -> CV_8UC1)
+				windowAbsDiffs.convertTo(windowAbsDiffs, CV_32FC1, 1); // convert CV_8UC1 [0,255] image to CV_32FC1 float 32 bit single channel
+				windowAbsDiffs = windowAbsDiffs.mul(weightsLeft).mul(weightsRight, 1/sumWindowWeights); // multiply each abs diff with its two weights in each of the two windows and normalize by total weights
+				Scalar sumWeightedAbsDiffs = sum(windowAbsDiffs); // sum up all elements in the single channel. note: Scalar is used for pixel values, it is a vector of color channels
+				costMatRight.at<float>(y - borderSize, x - borderSize) = sumWeightedAbsDiffs[0];
 
                 // COSTVOLUMELEFT
 
                 // take windows as image submatrices making sure they do not exceed the image frame
                 // for left image shift sample position x to right by disparity (no y shift needed since rectified)
-                windowLeft = imgLeftBorder.rowRange(y-halfWindowSize, y+windowSize- halfWindowSize).colRange(x- halfWindowSize +disparity, x+windowSize-halfWindowSize +disparity);
-                windowRight = imgRightBorder.rowRange(y- halfWindowSize, y+windowSize-halfWindowSize).colRange(x- halfWindowSize, x+windowSize-halfWindowSize);
-				
-				weightLeft = calculateWeightColorDifferance(halfWindowSize, windowLeft, sumSpatialDiff);
-				weightRight = calculateWeightColorDifferance(halfWindowSize, windowRight, sumSpatialDiff);
+				windowLeft = imgLeftBorder.rowRange(y-halfWindowSize, y+halfWindowSize+1).colRange(x-halfWindowSize+disparity, x+halfWindowSize+1+disparity);
+				windowRight = imgRightBorder.rowRange(y-halfWindowSize, y+halfWindowSize+1).colRange(x-halfWindowSize, x+halfWindowSize+1);
 
-				bothWeights = weightLeft*weightRight;
-
-                // the sum of the absolute color differences in the window is the cost at this pixel
+				// the weighted sum of the absolute color differences in the window is the cost at this pixel
                 // note Mat::at takes y (row) as first argument, then x (col)
-                absdiff(windowLeft, windowRight, windowAbsDiff);
-                sumChannel = sum(windowAbsDiff); // Scalar is used to pass pixel values, it is a vector of color channels, but not a vector of pixels
-				costMatLeft.at<int>(y - borderSize, x - borderSize) = ((sumChannel[0] + sumChannel[1] + sumChannel[2]));// *bothWeights) / bothWeights;
+				absdiff(windowLeft, windowRight, windowAbsDiffs);
+				transform(windowAbsDiffs, windowAbsDiffs, Matx13f(1,1,1)); // hack to elementwise add all three color channels into single channel (CV_8UC3 -> CV_8UC1)
+				windowAbsDiffs.convertTo(windowAbsDiffs, CV_32FC1, 1); // convert CV_8UC1 [0,255] image to CV_32FC1 float 32 bit single channel
+				windowAbsDiffs = windowAbsDiffs.mul(weightsLeft).mul(weightsRight, 1/sumWindowWeights); // multiply each abs diff with its two weights in each of the two windows and normalize by total weights
+				sumWeightedAbsDiffs = sum(windowAbsDiffs); // sum up all elements in the single channel. note: Scalar is used for pixel values, it is a vector of color channels
+				costMatLeft.at<float>(y - borderSize, x - borderSize) = sumWeightedAbsDiffs[0];
 
             }
         }
@@ -156,32 +145,44 @@ void computeCostVolume(const Mat &imgLeft, const Mat &imgRight,
 
 }
 
+// for window based density estimation we assume pixels in window having same disparity (belong to same object)
+// since this is not always the case we weight pixels in window based on color and spatial difference from center.
+// if dissimilar color and farther from center, they likely belong to other object than center pixel.
+// window should be a square matrix with uneven number of rows/cols
+// resultWeightMat is an empty matrix to which weights for all pixels in window will be written
+void calculateWindowWeights(const Mat &window, Mat &resultWeightMat) {
 
-//calculates the weight for the color difference between the pixels in a window
-float calculateWeightColorDifferance(int halfWindowSize, Mat window, float sumSpatialDiff) {
-	Vec3b middleColor = window.at<Vec3b>(halfWindowSize, halfWindowSize);
-	vector<Mat> channels(3);
-	split(window, channels);
-	Mat ch1Diff, ch2Diff, ch3Diff;
+	Vec2i windowCenterPos = Vec2i(window.rows/2, window.cols/2);
+	Vec3b windowCenterColor = window.at<Vec3b>(windowCenterPos);
 
-	absdiff(channels[0], middleColor[0], ch1Diff);
-	ch1Diff = ch1Diff.mul(ch1Diff);
-	absdiff(channels[1], middleColor[1], ch2Diff);
-	ch2Diff = ch2Diff.mul(ch2Diff);
-	absdiff(channels[2], middleColor[2], ch3Diff);
-	ch3Diff = ch2Diff.mul(ch3Diff);
+	for (int i = 0; i < window.rows; ++i) {
+		for (int j = 0; j < window.cols; ++j) {
 
-	Scalar sumCol = sum(ch1Diff) + sum(ch2Diff) + sum(ch3Diff);
-	float colDiff = sqrt(sumCol[0] + sumCol[1] + sumCol[2]) / gammaC;
-	return exp(-(colDiff + sumSpatialDiff));
+			Vec2i pixelPos = Vec2i(i, j);
+			Vec3b pixelColor = window.at<Vec3b>(pixelPos);
+
+			Vec2i spatialDiffVector;
+			absdiff(pixelPos, windowCenterPos, spatialDiffVector); // abs difference of pixel position vectors
+			spatialDiffVector = spatialDiffVector.mul(spatialDiffVector); // squared components x and y
+			float spatialDiff = sqrt(spatialDiffVector[0] + spatialDiffVector[1]) / GAMMA_P; // euclidean distance divided by constant
+
+			Vec3b colorDiffVector;
+			absdiff(pixelColor, windowCenterColor, colorDiffVector); // abs difference of pixel color vectors
+			colorDiffVector = colorDiffVector.mul(colorDiffVector); // squared components r, g, b
+			float colorDiff = sqrt(colorDiffVector[0] + colorDiffVector[1] + colorDiffVector[2]) / GAMMA_C;
+
+			resultWeightMat.at<float>(i, j) = exp(-(colorDiff + spatialDiff));
+		}
+	}
+
 }
 
 
 // compute left and right disparity maps from cost volumes (containing costs for each pixel and each given disparity shift)
 // for each pixel the disparity with lowest cost is used
-// disparities are then normalized for visualization (e.g. if costs calculated for 16 different disperities, map 15 to 255)
-void selectDisparity(cv::Mat &dispMatLeft, cv::Mat &dispMatRight,
-                     std::vector<cv::Mat> &costVolumeLeft, std::vector<cv::Mat> &costVolumeRight)
+// disparities are then normalized for visualization (e.g. if costs calculated for 16 different disperities, map 15 to 1)
+void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<Mat> &costVolumeRight,
+                     Mat &dispMatLeft, Mat &dispMatRight)
 {
 
     if (costVolumeLeft.size() != costVolumeRight.size() || costVolumeRight.size() == 0) {
@@ -189,38 +190,38 @@ void selectDisparity(cv::Mat &dispMatLeft, cv::Mat &dispMatRight,
         return;
     }
 
-    dispMatRight = Mat(costVolumeRight[0].size(), CV_8UC1, 0.);
-    dispMatLeft = Mat(costVolumeLeft[0].size(), CV_8UC1, 0.);
+	dispMatRight = Mat(costVolumeRight[0].size(), CV_32FC1, 0.);
+	dispMatLeft = Mat(costVolumeLeft[0].size(), CV_32FC1, 0.);
 
     for (int y = 0; y < costVolumeRight[0].rows; ++y) {
         for (int x = 0; x < costVolumeRight[0].cols; ++x) {
 
-            int minCostRight = INT32_MAX;
-            int minCostLeft = INT32_MAX;
+			int minCostRight = FLT_MAX;
+			int minCostLeft = FLT_MAX;
             int disparityRight = costVolumeRight.size();
             int disparityLeft = costVolumeLeft.size();
 
             for (int disparity = 0; disparity < costVolumeRight.size(); ++disparity) {
 
                 // if we find a disparity with lower cost in right cost volume, update candidate for right disparity map
-                int costRight = costVolumeRight[disparity].at<int>(y, x);
+				int costRight = costVolumeRight[disparity].at<float>(y, x);
                 if (costRight < minCostRight) {
                     minCostRight = costRight;
                     disparityRight = disparity;
                 }
 
                 // if we find a disparity with lower cost in left cost volume, update candidate for left disparity map
-                int costLeft = costVolumeLeft[disparity].at<int>(y, x);
+				int costLeft = costVolumeLeft[disparity].at<float>(y, x);
                 if (costLeft < minCostLeft) {
                     minCostLeft = costLeft;
                     disparityLeft = disparity;
                 }
             }
 
-            // normalize disparities for visualization (e.g. if costs calculated for 16 different disperities, map 15 to 255)
+			// normalize disparities for visualization (e.g. if costs calculated for 16 different disperities, map 15 to 1)
             int numDisparities = costVolumeRight.size()-1;
-            dispMatRight.at<uchar>(y, x) = disparityRight / (float)(numDisparities) * 255.f;
-            dispMatLeft.at<uchar>(y, x) = disparityLeft / (float)(numDisparities) * 255.f;
+			dispMatRight.at<float>(y, x) = disparityRight / (float)(numDisparities);
+			dispMatLeft.at<float>(y, x) = disparityLeft / (float)(numDisparities);
         }
     }
 }
