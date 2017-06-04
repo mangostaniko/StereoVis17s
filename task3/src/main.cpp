@@ -231,20 +231,20 @@ void selectDisparity(const std::vector<Mat> &costVolumeLeft, const std::vector<M
 
 			float minCostRight = FLT_MAX;
 			float minCostLeft = FLT_MAX;
-            int disparityRight = costVolumeRight.size();
-            int disparityLeft = costVolumeLeft.size();
+			int disparityRight = costVolumeRight.size();
+			int disparityLeft = costVolumeLeft.size();
 
 			for (int disparity = 0; disparity < costVolumeLeft.size(); ++disparity) {
 
                 // if we find a disparity with lower cost in right cost volume, update candidate for right disparity map
-				int costRight = costVolumeRight[disparity].at<float>(y, x);
+				float costRight = costVolumeRight[disparity].at<float>(y, x);
                 if (costRight < minCostRight) {
                     minCostRight = costRight;
                     disparityRight = disparity;
                 }
 
                 // if we find a disparity with lower cost in left cost volume, update candidate for left disparity map
-				int costLeft = costVolumeLeft[disparity].at<float>(y, x);
+				float costLeft = costVolumeLeft[disparity].at<float>(y, x);
                 if (costLeft < minCostLeft) {
                     minCostLeft = costLeft;
                     disparityLeft = disparity;
